@@ -12,6 +12,17 @@
   hosts: all
   become: yes
   tasks:
+    - name: Check if GPU Operator exists
+      shell: |
+        microk8s helm list -n gpu-operator | grep gpu-operator || true
+      register: gpu_operator_installed
+      changed_when: false
+
+    - name: Label nodes with GPU
+      shell: |
+        microk8s kubectl label node {{ inventory_hostname }} nodeSelector.kubernetes.io/gpu=true --overwrite
+      when: is_primary | bool
+
     - name: Install GPU Operator
       shell: |
         microk8s helm repo add nvidia https://helm.ngc.nvidia.com/nvidia || true
@@ -27,12 +38,18 @@
           --set operator.defaultRuntime=containerd \
           --insecure-skip-tls-verify \
           --kube-insecure-skip-tls-verify
-      when: is_primary | bool
+      when: is_primary | bool and "gpu-operator" not in gpu_operator_installed.stdout
 
 - name: Install Prometheus
   hosts: all
   become: yes
   tasks:
+    - name: Check if Prometheus exists
+      shell: |
+        microk8s helm list -n chutes | grep prometheus || true
+      register: prometheus_installed
+      changed_when: false
+
     - name: Install Prometheus
       shell: |
         microk8s helm repo add prometheus-community https://prometheus-community.github.io/helm-charts || true
@@ -50,4 +67,4 @@
           --set pushgateway.nodeSelector."kubernetes\.io/hostname"={{ inventory_hostname }} \
           --set kubeStateMetrics.nodeSelector."kubernetes\.io/hostname"={{ inventory_hostname }} \
           --insecure-skip-tls-verify --kube-insecure-skip-tls-verify
-      when: is_primary | bool
+      when: is_primary | bool and "prometheus" not in prometheus_installed.stdout
